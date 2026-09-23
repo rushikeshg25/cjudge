@@ -1,0 +1,24 @@
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# build output
+bin/
+dist/
+build/
+*.exe
+*.test
+*.out
+
+# deps
+node_modules/
+vendor/
+__pycache__/
+*.pyc
+.venv/
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/
