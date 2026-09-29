@@ -35,7 +35,7 @@ Linux workers and `runsc`; see [operations](docs/operations.md).
 ```sh
 cp .env.example .env
 # Set a random POSTGRES_PASSWORD in .env (URL-encode reserved URL characters).
-mkdir -p /tmp/cjudge-work
+sudo install -d -o root -g wheel -m 700 /tmp/cjudge-work # macOS; use -g root on Linux
 sh scripts/build-images.sh
 docker compose up --build -d
 docker compose run --rm migrate create-principal --name local-admin --admin

@@ -145,3 +145,13 @@ CI checks Go vulnerabilities and executes integration/isolation tests. It does n
 replace OS/image vulnerability scans, registry signing, gVisor qualification, a
 production restore drill, or representative load testing. Review base-image digest
 updates from Dependabot and rerun language/sandbox tests for every approved update.
+
+Workspace roots must be real directories owned by the worker's effective UID,
+with mode `0700`. Startup, evaluation, and cleanup reject insecure existing roots
+and ancestors writable by unrelated users (trusted sticky temporary directories
+are permitted). Provision the root before starting Compose, whose worker runs as
+UID 0; native/systemd deployments must use their worker UID instead. Do not share
+workspace roots between unrelated accounts or grant access through filesystem
+ACLs. System-owned parent aliases such as macOS `/tmp` are supported; a symlink
+at the workspace root is rejected. Changing ownership/mode of an existing root
+requires first checking its contents and stopping workers.

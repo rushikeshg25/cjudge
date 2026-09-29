@@ -10,6 +10,9 @@ import (
 // ReapWorkspaces recovers source/artifact directories after a process crash.
 // 32 minutes exceeds the maximum configurable job deadline plus cleanup grace.
 func ReapWorkspaces(root string, now time.Time) error {
+	if err := PrepareWorkspace(root); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
 		return nil

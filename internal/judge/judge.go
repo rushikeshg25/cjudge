@@ -29,7 +29,7 @@ func (j *Judge) Evaluate(ctx context.Context, sub domain.Submission, p domain.Pr
 	if err := p.Validate(); err != nil {
 		return result, fmt.Errorf("invalid stored problem: %w", err)
 	}
-	if err := os.MkdirAll(j.Workspace, 0700); err != nil {
+	if err := PrepareWorkspace(j.Workspace); err != nil {
 		return result, err
 	}
 	work, err := os.MkdirTemp(j.Workspace, "job-")
@@ -40,7 +40,7 @@ func (j *Judge) Evaluate(ctx context.Context, sub domain.Submission, p domain.Pr
 	if err = os.Chmod(work, 0755); err != nil {
 		return result, err
 	}
-	if err = os.WriteFile(filepath.Join(work, lang.SourceFile), []byte(sub.Source), 0444); err != nil {
+	if err = writeSource(filepath.Join(work, lang.SourceFile), sub.Source); err != nil {
 		return result, err
 	}
 	if len(lang.Compile) > 0 {

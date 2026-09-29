@@ -8,7 +8,7 @@ import (
 )
 
 func TestWorkspaceReaping(t *testing.T) {
-	root := t.TempDir()
+	root := secureWorkspace(t)
 	now := time.Now()
 	for _, name := range []string{"job-old", "job-active", "unmanaged"} {
 		if err := os.Mkdir(filepath.Join(root, name), 0755); err != nil {
