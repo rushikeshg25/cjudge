@@ -113,7 +113,8 @@ policy. Do not advertise fairness or Codeforces timing parity from this v1.
   verdicts must be calibrated per production runtime and hardware. Kernel-reported
   OOM maps to memory limit; an application that handles allocation failure may exit
   with a runtime error. Long test sets can exhaust the whole-job deadline and end in
-  system error after retries.
+  system error on that attempt, preserving completed-test counts. Infrastructure
+  failures and worker shutdown still retry; whole-job budget exhaustion does not.
 - No custom checkers, scoring subtasks, interactive tasks, contest scheduling, rating,
   user registration, live output, automatic rejudging, or source-download endpoint.
 - A PostgreSQL primary remains the durable coordination dependency. Standby promotion,

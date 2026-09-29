@@ -62,8 +62,41 @@ database are disposable and are not a deployed production service.
 - High-availability PostgreSQL failover, PITR, measured RPO/RTO or a restore drill.
 - Sustained workload throughput, p95/p99 SLOs, strict fairness, and hostile multi-tenant
   sandbox escape resistance. Unit tests and a local smoke test cannot establish these.
-- Hosted GitHub Actions execution: workflows are included but no branch/PR was pushed.
+- Hosted GitHub Actions execution: local checks are recorded here; hosted job results
+  are not asserted by this record.
 
 Complete these deployment checks using [operations.md](operations.md) before public
 traffic. The architecture supports multiple API replicas and worker hosts; the local
 verification used one API and two worker slots, not a production-scale benchmark.
+
+## Security and logic follow-up
+
+A static review of the pre-fix revision `0222894` identified two low-severity
+boundary gaps: uncapped readiness database work and acceptance of an insecure
+pre-existing workspace root. Local host access is a prerequisite for the latter;
+no remote sandbox escape was established. Additional regressions reproduced lease
+writes succeeding after lock-wait expiry, exhausted queued retries remaining
+stuck, whole-job deadlines retrying, and old database grants retaining hidden-test
+access. These paths have been corrected.
+
+Verification of the follow-up changes:
+
+- Full unit/race suite and `go vet ./...` passed.
+- Full PostgreSQL 17 integration/race suite passed, including lock-wait expiry for
+  renew/complete/retry and privilege convergence from broad table/column grants.
+- Full real Docker verdict/isolation suite passed on `runc`, including Python
+  top-level `return` and `break` classified as compile errors.
+- Bounded-readiness, workspace trust, exclusive source creation, job cancellation,
+  and Docker metadata overflow regressions passed.
+- Go vulnerability gate (`govulncheck@v1.8.0`) reported no vulnerabilities.
+- Fresh API/worker images built and the Compose worker started with a private,
+  UID-0 workspace. Docker Desktop's initial bind-mount UID differed from the
+  worker UID; explicit one-time provisioning corrected it. The README includes
+  the tested command instead of relying on host ownership mapping.
+- The packaged HTTP/database/worker smoke test accepted C++20, Python, and Go
+  submissions and verified idempotent request replay.
+
+The production qualification limits above still apply, especially `runsc`, host
+isolation, and contest timing. Workspace permission validation does not replace
+host ACL review; role reconciliation repairs direct grants but cannot neutralize
+superuser status, object ownership, PUBLIC grants, or other inherited roles.

@@ -50,13 +50,21 @@ func (s *stream) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// control is only used for bounded Docker metadata, never contestant output.
+// control bounds Docker metadata too: daemon failures or excessive orphan
+// listings must not grow worker memory without limit.
 func (d *Docker) control(ctx context.Context, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, d.Binary, args...)
 	cmd.WaitDelay = time.Second
-	return cmd.CombinedOutput()
+	cap := &capture{remaining: 1 << 20, cancel: cancel}
+	output := &stream{shared: cap}
+	cmd.Stdout, cmd.Stderr = output, output
+	err := cmd.Run()
+	if cap.exceeded {
+		return nil, fmt.Errorf("Docker control output exceeded 1 MiB")
+	}
+	return output.buf.Bytes(), err
 }
 
 func (d *Docker) Run(ctx context.Context, r Request) (out Outcome, err error) {

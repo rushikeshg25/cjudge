@@ -65,7 +65,10 @@ func (w *Worker) loop(ctx context.Context) {
 }
 
 func (w *Worker) process(parent context.Context, job domain.Job) {
-	ctx, cancel := context.WithTimeout(parent, w.JobTimeout)
+	budgetExpired := errors.New("whole-job budget exhausted")
+	deadlineCtx, deadlineCancel := context.WithTimeoutCause(parent, w.JobTimeout, budgetExpired)
+	defer deadlineCancel()
+	ctx, cancel := context.WithCancel(deadlineCtx)
 	defer cancel()
 	stop := make(chan struct{})
 	done := make(chan struct{})
@@ -98,7 +101,13 @@ func (w *Worker) process(parent context.Context, job domain.Job) {
 	// The write has its own deadline so shutdown can safely release owned work.
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer finishCancel()
-	if err != nil || ctx.Err() != nil {
+	if parent.Err() == nil && errors.Is(context.Cause(ctx), budgetExpired) {
+		// Repeating a deterministic whole-job timeout repeats the same expensive
+		// prefix. Preserve progress/provenance, but never publish partial acceptance.
+		result.Verdict = domain.SystemError
+		result.Diagnostic = "whole-job time budget exceeded"
+		err = nil
+	} else if err != nil || ctx.Err() != nil {
 		w.Log.Warn("job interrupted", "submission_id", job.ID, "attempt", job.Attempts, "error", err)
 		if retryErr := w.Repo.Retry(finishCtx, job, w.MaxAttempts); retryErr != nil {
 			w.Log.Warn("retry publication failed", "submission_id", job.ID, "error", retryErr)

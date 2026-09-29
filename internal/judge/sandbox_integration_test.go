@@ -44,6 +44,8 @@ func TestRealSandboxVerdicts(t *testing.T) {
 		{"wrong answer", "python3", "print(99)", domain.WrongAnswer, 3000, 128, 64},
 		{"compile error", "cpp20", "this is not c++", domain.CompileError, 3000, 128, 64},
 		{"python syntax", "python3", "if broken syntax", domain.CompileError, 3000, 128, 64},
+		{"python return outside function", "python3", "return 1", domain.CompileError, 3000, 128, 64},
+		{"python break outside loop", "python3", "break", domain.CompileError, 3000, 128, 64},
 		{"runtime error", "python3", "raise RuntimeError('private')", domain.RuntimeError, 3000, 128, 64},
 		{"time limit", "python3", "while True: pass", domain.TimeLimit, 300, 128, 64},
 		{"output limit", "python3", "print('x'*100000)", domain.OutputLimit, 3000, 128, 1},

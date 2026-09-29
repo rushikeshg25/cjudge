@@ -40,7 +40,7 @@ func TestVerdicts(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeRunner{out: []sandbox.Outcome{{}, tc.out}}
-			j := Judge{Runner: f, Languages: Languages("cpp", "py", "go"), Workspace: t.TempDir()}
+			j := Judge{Runner: f, Languages: Languages("cpp", "py", "go"), Workspace: secureWorkspace(t)}
 			p := domain.Problem{Title: "sum", Checker: "tokens", Limits: domain.Limits{TimeMS: 1000, MemoryMB: 128, OutputKB: 64}, Tests: []domain.TestCase{{Input: "1 2", Expected: "3"}}}
 			r, err := j.Evaluate(context.Background(), domain.Submission{Language: "go", Source: "code"}, p)
 			if err != nil || r.Verdict != tc.want || r.Diagnostic != "" {
@@ -54,7 +54,7 @@ func TestVerdicts(t *testing.T) {
 }
 
 func TestInfrastructureError(t *testing.T) {
-	j := Judge{Runner: &fakeRunner{err: errors.New("daemon down")}, Languages: Languages("cpp", "py", "go"), Workspace: t.TempDir()}
+	j := Judge{Runner: &fakeRunner{err: errors.New("daemon down")}, Languages: Languages("cpp", "py", "go"), Workspace: secureWorkspace(t)}
 	p := domain.Problem{Title: "p", Checker: "exact", Limits: domain.Limits{TimeMS: 1000, MemoryMB: 128, OutputKB: 64}, Tests: []domain.TestCase{{}}}
 	if _, err := j.Evaluate(context.Background(), domain.Submission{Language: "go"}, p); err == nil {
 		t.Fatal("infrastructure failure became contestant verdict")

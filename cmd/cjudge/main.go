@@ -99,6 +99,9 @@ func run(log *slog.Logger, args []string) error {
 		}
 		return nil
 	case "worker":
+		if err := judge.PrepareWorkspace(cfg.Workspace); err != nil {
+			return err
+		}
 		if err := db.Ping(ctx); err != nil {
 			return err
 		}
