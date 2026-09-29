@@ -24,12 +24,15 @@ type Repository interface {
 	Submission(context.Context, string, string) (domain.Submission, error)
 	Submissions(context.Context, string, string, int) ([]domain.Submission, error)
 	QueueStats(context.Context) (map[string]int64, error)
+	Allow(context.Context, string, int) (bool, error)
 }
 
 type Server struct {
-	Repo       Repository
-	Log        *slog.Logger
-	QueueLimit int
+	Repo              Repository
+	Log               *slog.Logger
+	QueueLimit        int
+	RequestsPerMinute int
+	metrics           metrics
 }
 
 type principalKey struct{}
@@ -69,6 +72,16 @@ func (s *Server) auth(admin bool, next http.HandlerFunc) http.HandlerFunc {
 		}
 		if admin && !p.Admin {
 			writeError(w, 403, "forbidden", "administrator required")
+			return
+		}
+		allowed, err := s.Repo.Allow(r.Context(), p.ID, s.RequestsPerMinute)
+		if err != nil {
+			s.failure(w, r, err)
+			return
+		}
+		if !allowed {
+			w.Header().Set("Retry-After", "60")
+			writeError(w, 429, "rate_limited", "request budget exhausted")
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))

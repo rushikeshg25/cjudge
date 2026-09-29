@@ -34,6 +34,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		rr := &responseRecorder{ResponseWriter: w}
 		defer func() {
+			defer func() { s.metrics.record(rr.status, time.Since(started)) }()
 			if recovered := recover(); recovered != nil {
 				s.Log.Error("handler panic", "request_id", w.Header().Get("X-Request-ID"))
 				if rr.status == 0 {
