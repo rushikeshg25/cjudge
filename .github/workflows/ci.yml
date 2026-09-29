@@ -1,0 +1,49 @@
+name: verify
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: cjudge
+          POSTGRES_PASSWORD: integration-only
+          POSTGRES_DB: cjudge_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cjudge"
+          --health-interval 3s --health-timeout 2s --health-retries 20
+    env:
+      CJUDGE_TEST_DATABASE_URL: postgres://cjudge:integration-only@localhost:5432/cjudge_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+      - run: test -z "$(gofmt -l cmd internal)"
+      - run: go vet ./...
+      - run: go test -race -tags=integration -count=1 -coverprofile=coverage.out ./...
+      - run: go build ./cmd/...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+  sandbox:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version-file: go.mod
+      - run: sh scripts/build-images.sh
+      - run: CJUDGE_TEST_DOCKER=1 CJUDGE_TEST_RUNTIME=runc go test -tags=sandboxintegration -timeout=10m ./internal/judge ./internal/sandbox
+      - run: docker build --target api -t cjudge-api:test .
+      - run: docker build --target worker -t cjudge-worker:test .
