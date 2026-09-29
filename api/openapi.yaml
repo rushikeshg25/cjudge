@@ -1,0 +1,208 @@
+openapi: 3.1.0
+info:
+  title: cjudge
+  version: 1.0.0
+  description: Asynchronous programming judge. Hidden tests and source are never returned.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearer: []
+paths:
+  /healthz:
+    get:
+      security: []
+      responses:
+        '200': {description: Process alive}
+  /readyz:
+    get:
+      security: []
+      responses:
+        '200': {description: Database reachable}
+        '503': {description: Database unavailable}
+  /metrics:
+    get:
+      description: Administrator-only Prometheus text metrics.
+      responses:
+        '200': {description: Metrics}
+        '403': {$ref: '#/components/responses/Error'}
+  /v1/problems:
+    get:
+      parameters:
+        - {$ref: '#/components/parameters/Before'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: Immutable problems in descending ID order, with next_cursor (empty at end).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Problem'}}
+                  next_cursor: {type: string}
+    post:
+      description: Administrator-only atomic publication of a problem and private tests. Immutable after creation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateProblem'}
+      responses:
+        '201':
+          description: Published (Location header identifies resource).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /v1/problems/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/ID'}
+    get:
+      responses:
+        '200':
+          description: Problem metadata; no tests.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '404': {$ref: '#/components/responses/Error'}
+  /v1/submissions:
+    post:
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [problem_id, language, source]
+              properties:
+                problem_id: {$ref: '#/components/schemas/ID'}
+                language: {enum: [cpp20, python3, go]}
+                source: {type: string, minLength: 1, description: Maximum 65536 UTF-8 bytes; no NUL.}
+      responses:
+        '202':
+          description: Durably queued.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Submission'}
+        '200':
+          description: Same principal, key, and request replayed; returns current submission state.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Submission'}
+        '409': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+    get:
+      description: Only the authenticated principal's submissions, in descending ID order.
+      parameters:
+        - {$ref: '#/components/parameters/Before'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: Submission page.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Submission'}}
+                  next_cursor: {type: string}
+  /v1/submissions/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/ID'}
+    get:
+      description: Other principals' submission IDs return 404, including for administrators.
+      responses:
+        '200':
+          description: Current state and terminal result if available.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Submission'}
+        '404': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    bearer: {type: http, scheme: bearer}
+  parameters:
+    ID: {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/ID'}}
+    Before: {name: before, in: query, schema: {$ref: '#/components/schemas/ID'}}
+    Limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+  responses:
+    Error:
+      description: Structured error. Retry-After accompanies rate limits and queue capacity responses.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: {type: string}
+                  message: {type: string}
+  schemas:
+    ID: {type: string, pattern: '^[a-f0-9]{32}$'}
+    Limits:
+      type: object
+      additionalProperties: false
+      required: [time_ms, memory_mb, output_kb]
+      properties:
+        time_ms: {type: integer, minimum: 100, maximum: 10000}
+        memory_mb: {type: integer, minimum: 32, maximum: 512}
+        output_kb: {type: integer, minimum: 1, maximum: 1024}
+    CreateProblem:
+      type: object
+      additionalProperties: false
+      required: [title, checker, limits, tests]
+      properties:
+        title: {type: string, description: 1..200 UTF-8 bytes.}
+        statement: {type: string, description: At most 65536 UTF-8 bytes.}
+        checker: {enum: [tokens, exact]}
+        limits: {$ref: '#/components/schemas/Limits'}
+        tests:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: At most 1 MiB per input/output and 4 MiB total, UTF-8 without NUL.
+          items:
+            type: object
+            additionalProperties: false
+            required: [input, expected]
+            properties:
+              input: {type: string}
+              expected: {type: string}
+    Problem:
+      type: object
+      properties:
+        id: {$ref: '#/components/schemas/ID'}
+        title: {type: string}
+        statement: {type: string}
+        checker: {enum: [tokens, exact]}
+        limits: {$ref: '#/components/schemas/Limits'}
+        created_at: {type: string, format: date-time}
+    Submission:
+      type: object
+      properties:
+        id: {$ref: '#/components/schemas/ID'}
+        problem_id: {$ref: '#/components/schemas/ID'}
+        language: {enum: [cpp20, python3, go]}
+        state: {enum: [queued, running, finished]}
+        attempts: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        result:
+          type: object
+          properties:
+            verdict: {enum: [accepted, wrong_answer, compile_error, runtime_error, time_limit_exceeded, memory_limit_exceeded, output_limit_exceeded, system_error]}
+            passed: {type: integer}
+            total: {type: integer}
+            time_ms: {type: integer, description: Maximum test wall time including container startup; not CPU time.}
+            diagnostic: {type: string, description: Bounded compiler diagnostics only.}
