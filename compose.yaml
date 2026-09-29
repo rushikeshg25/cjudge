@@ -51,7 +51,7 @@ services:
     mem_limit: 256m
     stop_grace_period: 30s
     restart: unless-stopped
-    networks: [control]
+    networks: [control, ingress]
   worker:
     build:
       context: .
@@ -79,5 +79,6 @@ services:
 volumes:
   database:
 networks:
+  ingress:
   control:
     internal: true

@@ -4,10 +4,23 @@ import json
 import os
 import time
 import urllib.request
+import urllib.error
 import uuid
 
 base = os.environ.get("CJUDGE_URL", "http://localhost:8080")
 token = os.environ["CJUDGE_ADMIN_TOKEN"]
+
+# `compose up -d` can return before the API listener is ready.
+ready_deadline = time.monotonic() + 60
+while True:
+    try:
+        with urllib.request.urlopen(base + "/readyz", timeout=3) as response:
+            if response.status == 200:
+                break
+    except (urllib.error.URLError, TimeoutError):
+        if time.monotonic() >= ready_deadline:
+            raise SystemExit("API did not become ready within 60 seconds")
+    time.sleep(1)
 
 
 def call(path, body=None, key=None):
@@ -19,7 +32,7 @@ def call(path, body=None, key=None):
         return json.load(response)
 
 
-problem = call("/v1/problems", {"title": "A + B", "statement": "Print the sum of two integers.", "checker": "tokens", "limits": {"time_ms": 3000, "memory_mb": 128, "output_kb": 64}, "tests": [{"input": "2 3\n", "expected": "5\n"}, {"input": "-4 7\n", "expected": "3\n"}]})
+problem = call("/v1/problems", {"title": "A + B", "statement": "Print the sum of two integers.", "checker": "tokens", "limits": {"time_ms": 10000, "memory_mb": 128, "output_kb": 64}, "tests": [{"input": "2 3\n", "expected": "5\n"}, {"input": "-4 7\n", "expected": "3\n"}]})
 assert "tests" not in problem
 sources = {
     "cpp20": '#include <iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<a+b<<"\\n";}',

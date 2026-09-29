@@ -310,6 +310,9 @@ func TestDatabaseRoleBoundaries(t *testing.T) {
 	}
 	a := asRole(apiRole)
 	w := asRole(workerRole)
+	if err := a.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = a.PublicProblem(ctx, req.ProblemID); err != nil {
 		t.Fatal(err)
 	}
@@ -346,6 +349,9 @@ func TestDatabaseRoleBoundaries(t *testing.T) {
 	if err = w.Complete(ctx, job, domain.Result{Verdict: domain.Accepted}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = w.Pool.Exec(ctx, `UPDATE submissions SET result='{"verdict":"wrong_answer"}' WHERE id=$1`, sub.ID); err == nil {
+		t.Fatal("terminal verdict could be rewritten")
+	}
 	var n int
 	if err = s.Pool.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE entity_id=$1`, sub.ID).Scan(&n); err != nil || n != 3 {
 		t.Fatalf("audit transition count=%d err=%v", n, err)
@@ -353,5 +359,39 @@ func TestDatabaseRoleBoundaries(t *testing.T) {
 	var leaked bool
 	if err = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT FROM audit_events WHERE details::text LIKE '%package main%')`).Scan(&leaked); err != nil || leaked {
 		t.Fatal("audit leaked source")
+	}
+}
+
+func TestRetryBackoffAndAttemptBudget(t *testing.T) {
+	s := testStore(t)
+	p, req := fixture(t, s)
+	ctx := context.Background()
+	sub, _, err := s.Enqueue(ctx, p.ID, "retry", req, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.Claim(ctx, time.Minute, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Retry(ctx, first, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Claim(ctx, time.Minute, 2); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatal("retry backoff bypassed")
+	}
+	if _, err = s.Pool.Exec(ctx, `UPDATE submissions SET available_at=now()-interval '1 second' WHERE id=$1`, sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.Claim(ctx, time.Minute, 2)
+	if err != nil || second.Attempts != 2 {
+		t.Fatalf("retry attempt: %+v %v", second, err)
+	}
+	if err = s.Retry(ctx, second, 2); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Submission(ctx, sub.ID, p.ID)
+	if err != nil || got.Result == nil || got.Result.Verdict != domain.SystemError {
+		t.Fatalf("exhausted retry: %+v %v", got, err)
 	}
 }

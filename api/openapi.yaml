@@ -205,4 +205,5 @@ components:
             passed: {type: integer}
             total: {type: integer}
             time_ms: {type: integer, description: Maximum test wall time including container startup; not CPU time.}
+            image: {type: string, description: Immutable toolchain image ID used by the worker, when execution began.}
             diagnostic: {type: string, description: Bounded compiler diagnostics only.}
