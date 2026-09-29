@@ -155,3 +155,11 @@ workspace roots between unrelated accounts or grant access through filesystem
 ACLs. System-owned parent aliases such as macOS `/tmp` are supported; a symlink
 at the workspace root is rejected. Changing ownership/mode of an existing root
 requires first checking its contents and stopping workers.
+
+Reapply `deploy/roles.sql` as the owner after migrations or grant changes. It
+atomically clears direct schema/table/column/sequence grants on the three managed
+group roles before installing the allowlist. This repairs older broad grants;
+it does not remove privileges inherited through other roles, PUBLIC privileges,
+object ownership, or superuser attributes. Provision dedicated non-superuser
+login users with only the intended group membership, and audit those external
+sources of authority separately.

@@ -308,6 +308,14 @@ func TestDatabaseRoleBoundaries(t *testing.T) {
 		t.Cleanup(pool.Close)
 		return &Store{Pool: pool}
 	}
+	// Simulate drift from a previous deployment, including column-level grants
+	// that survive REVOKE ALL ON TABLE. Reapplying roles.sql must converge.
+	if _, err = s.Pool.Exec(ctx, `GRANT ALL ON ALL TABLES IN SCHEMA `+schema+` TO `+apiRole+`,`+workerRole+`; GRANT SELECT(tests) ON problems TO `+apiRole+`; GRANT UPDATE(tests) ON problems TO `+workerRole); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Pool.Exec(ctx, sql); err != nil {
+		t.Fatal(err)
+	}
 	a := asRole(apiRole)
 	w := asRole(workerRole)
 	if err := a.Ping(ctx); err != nil {
