@@ -1,0 +1,13 @@
+.PHONY: build test race vet fmt integration
+build:
+	go build ./cmd/...
+test:
+	go test ./...
+race:
+	go test -race ./...
+vet:
+	go vet ./...
+fmt:
+	gofmt -w $$(find cmd internal -name '*.go')
+integration:
+	go test -tags=integration -count=1 ./internal/store
