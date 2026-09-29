@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/jackc/pgx/v5"
 	"time"
 
 	"github.com/rushikeshg25/cjudge/internal/domain"
@@ -32,15 +34,8 @@ func (s *Store) Claim(ctx context.Context, lease time.Duration, maxAttempts int)
 }
 
 func (s *Store) Renew(ctx context.Context, j domain.Job, lease time.Duration) error {
-	tag, err := s.Pool.Exec(ctx, `UPDATE submissions SET lease_until=now()+$3*interval '1 millisecond',updated_at=now()
- WHERE id=$1 AND lease_token=$2 AND state='running' AND lease_until>now()`, j.ID, j.LeaseToken, lease.Milliseconds())
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() != 1 {
-		return domain.ErrLeaseLost
-	}
-	return nil
+	return s.mutateLease(ctx, j, `UPDATE submissions SET lease_until=clock_timestamp()+$3*interval '1 millisecond',updated_at=now()
+ WHERE id=$1 AND lease_token=$2 AND state='running' AND lease_until>clock_timestamp()`, lease.Milliseconds())
 }
 
 func (s *Store) Complete(ctx context.Context, j domain.Job, result domain.Result) error {
@@ -48,15 +43,8 @@ func (s *Store) Complete(ctx context.Context, j domain.Job, result domain.Result
 	if err != nil {
 		return err
 	}
-	tag, err := s.Pool.Exec(ctx, `UPDATE submissions SET state='finished',result=$3,lease_token=NULL,lease_until=NULL,updated_at=now()
- WHERE id=$1 AND lease_token=$2 AND state='running' AND lease_until>now()`, j.ID, j.LeaseToken, body)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() != 1 {
-		return domain.ErrLeaseLost
-	}
-	return nil
+	return s.mutateLease(ctx, j, `UPDATE submissions SET state='finished',result=$3,lease_token=NULL,lease_until=NULL,updated_at=now()
+ WHERE id=$1 AND lease_token=$2 AND state='running' AND lease_until>clock_timestamp()`, body)
 }
 
 func (s *Store) Retry(ctx context.Context, j domain.Job, maxAttempts int) error {
@@ -64,16 +52,36 @@ func (s *Store) Retry(ctx context.Context, j domain.Job, maxAttempts int) error 
 		return s.Complete(ctx, j, domain.Result{Verdict: domain.SystemError})
 	}
 	delay := time.Duration(1<<min(j.Attempts, 6)) * time.Second
-	tag, err := s.Pool.Exec(ctx, `UPDATE submissions SET state='queued',lease_token=NULL,lease_until=NULL,
- available_at=now()+$3*interval '1 millisecond',updated_at=now()
- WHERE id=$1 AND lease_token=$2 AND state='running' AND lease_until>now()`, j.ID, j.LeaseToken, delay.Milliseconds())
+	return s.mutateLease(ctx, j, `UPDATE submissions SET state='queued',lease_token=NULL,lease_until=NULL,
+ available_at=clock_timestamp()+$3*interval '1 millisecond',updated_at=now()
+ WHERE id=$1 AND lease_token=$2 AND state='running' AND lease_until>clock_timestamp()`, delay.Milliseconds())
+}
+
+// mutateLease locks first, then evaluates expiry against wall time. An UPDATE
+// predicate alone can be evaluated before waiting on a row lock; now() is also
+// frozen at transaction start. Neither is a safe post-wait lease fence.
+func (s *Store) mutateLease(ctx context.Context, j domain.Job, query string, value any) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.Background())
+	var id string
+	err = tx.QueryRow(ctx, `SELECT id FROM submissions WHERE id=$1 FOR UPDATE`, j.ID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrLeaseLost
+	}
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, query, j.ID, j.LeaseToken, value)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() != 1 {
 		return domain.ErrLeaseLost
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (s *Store) QueueStats(ctx context.Context) (map[string]int64, error) {
