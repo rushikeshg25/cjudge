@@ -13,7 +13,8 @@ import (
 // Claim also recovers abandoned jobs. All clocks are supplied by PostgreSQL.
 func (s *Store) Claim(ctx context.Context, lease time.Duration, maxAttempts int) (domain.Job, error) {
 	_, err := s.Pool.Exec(ctx, `WITH expired AS (
- SELECT id FROM submissions WHERE state='running' AND lease_until<=now() AND attempts >= $1
+ SELECT id FROM submissions WHERE attempts >= $1
+ AND (state='queued' OR (state='running' AND lease_until<=clock_timestamp()))
  ORDER BY lease_until FOR UPDATE SKIP LOCKED LIMIT 100
  ) UPDATE submissions SET state='finished',lease_token=NULL,lease_until=NULL,
  result='{"verdict":"system_error","passed":0,"total":0,"time_ms":0}'::jsonb,updated_at=now()
@@ -27,7 +28,7 @@ func (s *Store) Claim(ctx context.Context, lease time.Duration, maxAttempts int)
  ((state='queued' AND available_at<=now()) OR (state='running' AND lease_until<=now()))
  ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1
  ) UPDATE submissions SET state='running',attempts=attempts+1,lease_token=$2,
- lease_until=now()+$3*interval '1 millisecond',updated_at=now()
+ lease_until=clock_timestamp()+$3*interval '1 millisecond',updated_at=now()
  WHERE id IN (SELECT id FROM candidate) RETURNING `+submissionColumns, maxAttempts, token, lease.Milliseconds())
 	sub, err := scanSubmission(row)
 	return domain.Job{Submission: sub, LeaseToken: token}, err

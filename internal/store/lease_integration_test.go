@@ -85,3 +85,42 @@ func TestLeaseExpiryWhileWaitingForRowLock(t *testing.T) {
 		})
 	}
 }
+
+func TestLoweredAttemptBudgetDoesNotStrandRetries(t *testing.T) {
+	s := testStore(t)
+	p, req := fixture(t, s)
+	ctx := context.Background()
+	sub, _, err := s.Enqueue(ctx, p.ID, "queued", req, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.Claim(ctx, time.Minute, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Retry(ctx, job, 3); err != nil {
+		t.Fatal(err)
+	}
+	// The retry is still in backoff; a reduced budget should finish it anyway.
+	if _, err = s.Claim(ctx, time.Minute, 1); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatal(err)
+	}
+	got, err := s.Submission(ctx, sub.ID, p.ID)
+	if err != nil || got.State != "finished" || got.Result == nil || got.Result.Verdict != domain.SystemError {
+		t.Fatalf("retry stranded: %+v %v", got, err)
+	}
+	active, _, err := s.Enqueue(ctx, p.ID, "active", req, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Claim(ctx, time.Minute, 3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Claim(ctx, time.Minute, 1); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatal(err)
+	}
+	got, err = s.Submission(ctx, active.ID, p.ID)
+	if err != nil || got.State != "running" {
+		t.Fatalf("live lease terminated: %+v %v", got, err)
+	}
+}
