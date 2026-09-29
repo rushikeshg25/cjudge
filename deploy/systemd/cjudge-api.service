@@ -1,0 +1,29 @@
+[Unit]
+Description=cjudge API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cjudge-api
+Group=cjudge-api
+Environment=DATABASE_URL_FILE=/etc/cjudge/api-database-url
+Environment=CJUDGE_LISTEN=127.0.0.1:8080
+ExecStart=/usr/local/bin/cjudge api
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+MemoryMax=256M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

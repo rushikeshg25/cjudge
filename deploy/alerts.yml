@@ -1,0 +1,18 @@
+groups:
+  - name: cjudge
+    rules:
+      - alert: CjudgeNoWorkers
+        expr: max(cjudge_workers) == 0 and max(cjudge_jobs{state="queued"}) > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "Queued submissions have no live execution workers"}
+      - alert: CjudgeQueueAge
+        expr: max(cjudge_queue_oldest_seconds) > 60
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Judge queue age exceeds the operating target"}
+      - alert: CjudgeAPIErrors
+        expr: sum(rate(cjudge_http_errors_total[5m])) / clamp_min(sum(rate(cjudge_http_requests_total[5m])), 0.01) > 0.01
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Judge API error ratio exceeds one percent"}
