@@ -13,6 +13,7 @@ import (
 
 type fakeRepo struct {
 	renewErr               error
+	result                 domain.Result
 	complete, retry, renew int
 }
 
@@ -23,7 +24,8 @@ func (f *fakeRepo) Renew(context.Context, domain.Job, time.Duration) error {
 	f.renew++
 	return f.renewErr
 }
-func (f *fakeRepo) Complete(context.Context, domain.Job, domain.Result) error {
+func (f *fakeRepo) Complete(_ context.Context, _ domain.Job, r domain.Result) error {
+	f.result = r
 	f.complete++
 	return nil
 }
@@ -90,5 +92,31 @@ func TestIdleShutdown(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("shutdown hung")
+	}
+}
+
+func TestWholeJobDeadlineIsTerminal(t *testing.T) {
+	repo := &fakeRepo{}
+	w := testWorker(repo, func(ctx context.Context, _ domain.Submission, _ domain.Problem) (domain.Result, error) {
+		<-ctx.Done()
+		return domain.Result{Image: "sha256:fixture", Total: 10, Passed: 2}, ctx.Err()
+	})
+	w.JobTimeout = 30 * time.Millisecond
+	w.process(context.Background(), domain.Job{})
+	if repo.complete != 1 || repo.retry != 0 || repo.result.Verdict != domain.SystemError || repo.result.Total != 10 || repo.result.Image != "sha256:fixture" {
+		t.Fatalf("deadline retried or provenance lost: %+v", repo)
+	}
+}
+func TestShutdownStillRetries(t *testing.T) {
+	repo := &fakeRepo{}
+	parent, cancel := context.WithCancel(context.Background())
+	w := testWorker(repo, func(ctx context.Context, _ domain.Submission, _ domain.Problem) (domain.Result, error) {
+		cancel()
+		<-ctx.Done()
+		return domain.Result{}, ctx.Err()
+	})
+	w.process(parent, domain.Job{})
+	if repo.complete != 0 || repo.retry != 1 {
+		t.Fatalf("shutdown finalized: %+v", repo)
 	}
 }
