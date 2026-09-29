@@ -8,10 +8,14 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rushikeshg25/cjudge/internal/domain"
 )
@@ -231,5 +235,123 @@ func TestCredentialsAndSharedRateBudget(t *testing.T) {
 	}
 	if _, err = s.Authenticate(ctx, token); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatal("revoked token accepted")
+	}
+}
+
+func TestParallelClaims(t *testing.T) {
+	s := testStore(t)
+	p, req := fixture(t, s)
+	ctx := context.Background()
+	for i := 0; i < 20; i++ {
+		if _, _, err := s.Enqueue(ctx, p.ID, fmt.Sprint(i), req, 100); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	ids := make(chan string, 20)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			job, err := s.Claim(ctx, time.Minute, 3)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			ids <- job.ID
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	seen := map[string]bool{}
+	for id := range ids {
+		if seen[id] {
+			t.Fatal("duplicate concurrent claim")
+		}
+		seen[id] = true
+	}
+	if len(seen) != 20 {
+		t.Fatalf("only claimed %d jobs", len(seen))
+	}
+}
+
+func TestDatabaseRoleBoundaries(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	owner, req := fixture(t, s)
+	var schema string
+	if err := s.Pool.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+	apiRole, workerRole, operatorRole := "api_"+domain.NewID(), "worker_"+domain.NewID(), "operator_"+domain.NewID()
+	data, err := os.ReadFile("../../deploy/roles.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := strings.NewReplacer("cjudge_api", apiRole, "cjudge_worker", workerRole, "cjudge_operator", operatorRole, "public", schema).Replace(string(data))
+	if _, err = s.Pool.Exec(ctx, sql); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, role := range []string{apiRole, workerRole, operatorRole} {
+			s.Pool.Exec(ctx, `DROP OWNED BY `+role)
+			s.Pool.Exec(ctx, `DROP ROLE `+role)
+		}
+	})
+	asRole := func(role string) *Store {
+		cfg := s.Pool.Config()
+		cfg.AfterConnect = func(ctx context.Context, c *pgx.Conn) error { _, err := c.Exec(ctx, `SET ROLE `+role); return err }
+		pool, err := pgxpool.NewWithConfig(ctx, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(pool.Close)
+		return &Store{Pool: pool}
+	}
+	a := asRole(apiRole)
+	w := asRole(workerRole)
+	if _, err = a.PublicProblem(ctx, req.ProblemID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.Problem(ctx, req.ProblemID); err == nil {
+		t.Fatal("API can read hidden tests")
+	}
+	if _, _, err = a.CreatePrincipal(ctx, "bad", true); err == nil {
+		t.Fatal("API can mint admin tokens")
+	}
+	if _, _, err = w.CreatePrincipal(ctx, "bad", true); err == nil {
+		t.Fatal("worker can mint admin tokens")
+	}
+	if _, err = a.Pool.Exec(ctx, `UPDATE audit_events SET action='tampered'`); err == nil {
+		t.Fatal("API can mutate audit")
+	}
+	if _, err = w.Pool.Exec(ctx, `UPDATE problems SET tests='[]'`); err == nil {
+		t.Fatal("worker can mutate tests")
+	}
+	p := domain.Problem{AuthorID: owner.ID, Title: "role test", Checker: "exact", Limits: domain.Limits{TimeMS: 1000, MemoryMB: 128, OutputKB: 64}, Tests: []domain.TestCase{{}}}
+	if _, err = a.CreateProblem(ctx, p); err != nil {
+		t.Fatalf("API cannot publish: %v", err)
+	}
+	sub, _, err := a.Enqueue(ctx, owner.ID, "roles", req, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := w.Claim(ctx, time.Minute, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = w.Renew(ctx, job, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err = w.Complete(ctx, job, domain.Result{Verdict: domain.Accepted}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err = s.Pool.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE entity_id=$1`, sub.ID).Scan(&n); err != nil || n != 3 {
+		t.Fatalf("audit transition count=%d err=%v", n, err)
+	}
+	var leaked bool
+	if err = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT FROM audit_events WHERE details::text LIKE '%package main%')`).Scan(&leaked); err != nil || leaked {
+		t.Fatal("audit leaked source")
 	}
 }

@@ -78,6 +78,9 @@ func run(log *slog.Logger, args []string) error {
 		}
 		return db.RevokePrincipal(ctx, *id)
 	case "api":
+		if err := db.Ping(ctx); err != nil {
+			return err
+		}
 		app := &api.Server{Repo: db, Log: log, QueueLimit: cfg.QueueLimit, RequestsPerMinute: cfg.RequestsPerMinute}
 		srv := &http.Server{Addr: cfg.Listen, Handler: app.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 		done := make(chan error, 1)
@@ -96,6 +99,9 @@ func run(log *slog.Logger, args []string) error {
 		}
 		return nil
 	case "worker":
+		if err := db.Ping(ctx); err != nil {
+			return err
+		}
 		docker := &sandbox.Docker{Binary: cfg.DockerBinary, Runtime: cfg.Runtime}
 		if err := docker.Check(ctx, []string{cfg.CPPImage, cfg.PythonImage, cfg.GoImage}); err != nil {
 			return err
@@ -114,7 +120,7 @@ func run(log *slog.Logger, args []string) error {
 		if err := db.Heartbeat(ctx, workerID, cfg.Workers); err != nil {
 			return err
 		}
-		go maintain(ctx, db, docker, log, workerID, cfg.Workers)
+		go maintain(ctx, db, docker, log, workerID, cfg.Workers, cfg.Workspace)
 		j := &judge.Judge{Runner: docker, Languages: judge.Languages(cfg.CPPImage, cfg.PythonImage, cfg.GoImage), Workspace: cfg.Workspace}
 		w := &worker.Worker{Repo: db, Judge: j, Log: log, Concurrency: cfg.Workers, MaxAttempts: cfg.MaxAttempts, Lease: cfg.Lease, JobTimeout: cfg.JobTimeout, Poll: cfg.Poll}
 		done := make(chan struct{})

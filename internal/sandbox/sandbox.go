@@ -38,6 +38,9 @@ func createArgs(name, runtime string, r Request) ([]string, error) {
 	if !filepath.IsAbs(r.Workspace) || r.Image == "" || len(r.Command) == 0 || r.Timeout <= 0 || r.MemoryMB < 1 || r.OutputBytes < 1 {
 		return nil, fmt.Errorf("invalid sandbox request")
 	}
+	if r.ArtifactPath != "" && r.ArtifactPath != "/tmp/program" {
+		return nil, fmt.Errorf("invalid artifact path")
+	}
 	// Docker's --mount CSV syntax must not reinterpret a path as extra options.
 	for _, c := range r.Workspace {
 		if c == ',' || c == '\n' || c == '\r' {
@@ -52,5 +55,9 @@ func createArgs(name, runtime string, r Request) ([]string, error) {
 		args = append(args, "--runtime", runtime)
 	}
 	args = append(args, r.Image)
+	if r.ArtifactPath != "" {
+		// Positional arguments preserve command boundaries; source never enters a shell string.
+		args = append(args, "/bin/sh", "-c", `"$@" >&2 && exec tar -C /tmp -cf - program`, "cjudge-compile")
+	}
 	return append(args, r.Command...), nil
 }

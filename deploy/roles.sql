@@ -8,6 +8,7 @@ DO $$ BEGIN
 END $$;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO cjudge_api,cjudge_worker,cjudge_operator;
+GRANT SELECT ON schema_migrations TO cjudge_api,cjudge_worker;
 GRANT SELECT ON principals,api_keys TO cjudge_api;
 GRANT SELECT(id,title,statement,checker,limits,created_at), INSERT ON problems TO cjudge_api;
 GRANT SELECT,INSERT ON submissions TO cjudge_api;

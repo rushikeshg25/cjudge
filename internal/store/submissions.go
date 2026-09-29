@@ -72,6 +72,12 @@ func (s *Store) Enqueue(ctx context.Context, owner, key string, req domain.Submi
 	if count >= capacity {
 		return zero, false, domain.ErrQueueFull
 	}
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM submissions WHERE owner_id=$1 AND state IN ('queued','running')`, owner).Scan(&count); err != nil {
+		return zero, false, err
+	}
+	if count >= 50 {
+		return zero, false, domain.ErrQueueFull
+	}
 	sub, err := scanSubmission(tx.QueryRow(ctx, `INSERT INTO submissions(id,owner_id,problem_id,language,source,idempotency_key,request_hash) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+submissionColumns, domain.NewID(), owner, req.ProblemID, req.Language, req.Source, key, hash[:]))
 	if err != nil {
 		return zero, false, err

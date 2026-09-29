@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -24,13 +27,21 @@ type capture struct {
 type stream struct {
 	shared *capture
 	buf    bytes.Buffer
+	dst    io.Writer
 }
 
 func (s *stream) Write(p []byte) (int, error) {
 	s.shared.mu.Lock()
 	defer s.shared.mu.Unlock()
 	n := min(len(p), s.shared.remaining)
-	s.buf.Write(p[:n])
+	if s.dst != nil {
+		if _, err := s.dst.Write(p[:n]); err != nil {
+			s.shared.cancel()
+			return 0, err
+		}
+	} else {
+		s.buf.Write(p[:n])
+	}
 	s.shared.remaining -= n
 	if n < len(p) {
 		s.shared.exceeded = true
@@ -66,6 +77,16 @@ func (d *Docker) Run(ctx context.Context, r Request) (out Outcome, err error) {
 	defer cancel()
 	cap := &capture{remaining: r.OutputBytes, cancel: cancel}
 	stdout, stderr := &stream{shared: cap}, &stream{shared: cap}
+	var artifact *os.File
+	if r.ArtifactPath != "" {
+		artifact, err = os.CreateTemp(r.Workspace, ".artifact-")
+		if err != nil {
+			return out, err
+		}
+		defer os.Remove(artifact.Name())
+		defer artifact.Close()
+		stdout = &stream{shared: &capture{remaining: (32 << 20) + (64 << 10), cancel: cancel}, dst: artifact}
+	}
 	cmd := exec.CommandContext(runCtx, d.Binary, "start", "--attach", "--interactive", name)
 	cmd.Stdin = strings.NewReader(r.Input)
 	cmd.Stdout = stdout
@@ -76,7 +97,7 @@ func (d *Docker) Run(ctx context.Context, r Request) (out Outcome, err error) {
 	out.Duration = time.Since(started)
 	out.Stdout = stdout.buf.String()
 	out.Stderr = stderr.buf.String()
-	out.OutputExceeded = cap.exceeded
+	out.OutputExceeded = cap.exceeded || stdout.shared.exceeded
 	out.TimedOut = runCtx.Err() == context.DeadlineExceeded
 	if runCtx.Err() != nil {
 		if _, killErr := d.control(context.Background(), "kill", name); killErr != nil {
@@ -108,10 +129,10 @@ func (d *Docker) Run(ctx context.Context, r Request) (out Outcome, err error) {
 		return out, fmt.Errorf("attach sandbox: %w", runErr)
 	}
 	if r.ArtifactPath != "" && out.ExitCode == 0 && !out.OOM && !out.TimedOut && !out.OutputExceeded {
-		if r.ArtifactPath != "/tmp/program" {
-			return out, fmt.Errorf("invalid artifact path")
+		if _, err = artifact.Seek(0, io.SeekStart); err != nil {
+			return out, err
 		}
-		if err = d.exportArtifact(ctx, name, r.Workspace); err != nil {
+		if err = extractArtifact(artifact, filepath.Join(r.Workspace, "program")); err != nil {
 			return out, fmt.Errorf("export artifact: %w", err)
 		}
 	}

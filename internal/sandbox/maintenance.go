@@ -11,6 +11,8 @@ import (
 
 // Reap only removes explicitly managed containers after their maximum lifetime.
 func (d *Docker) Reap(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
 	data, err := d.control(ctx, "ps", "-aq", "--filter", "label=cjudge.managed=true")
 	if err != nil {
 		return err
@@ -20,6 +22,9 @@ func (d *Docker) Reap(ctx context.Context) error {
 		ids = ids[:256]
 	}
 	for _, id := range ids {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		b, err := d.control(ctx, "inspect", "--format", "{{json .Config.Labels}}", id)
 		if err != nil {
 			continue

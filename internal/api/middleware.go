@@ -27,6 +27,8 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 }
 
 func (s *Server) middleware(next http.Handler) http.Handler {
+	inflight := make(chan struct{}, 16)
+	publishing := make(chan struct{}, 1)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		w.Header().Set("X-Request-ID", domain.NewID())
@@ -43,8 +45,29 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			}
 			s.Log.Info("http request", "method", r.Method, "route", r.Pattern, "status", rr.status, "duration_ms", time.Since(started).Milliseconds(), "request_id", w.Header().Get("X-Request-ID"))
 		}()
+		if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
+			select {
+			case inflight <- struct{}{}:
+				defer func() { <-inflight }()
+			default:
+				w.Header().Set("Retry-After", "1")
+				writeError(rr, 503, "overloaded", "request concurrency at capacity")
+				return
+			}
+		}
+		if r.Method == "POST" && r.URL.Path == "/v1/problems" {
+			select {
+			case publishing <- struct{}{}:
+				defer func() { <-publishing }()
+			default:
+				w.Header().Set("Retry-After", "1")
+				writeError(rr, 503, "overloaded", "problem publication at capacity")
+				return
+			}
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
-		next.ServeHTTP(rr, r.WithContext(ctx))
+		r = r.WithContext(ctx)
+		next.ServeHTTP(rr, r)
 	})
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,9 @@ func Load() (Config, error) {
 	}
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required")
+	}
+	if !filepath.IsAbs(c.Workspace) || filepath.Clean(c.Workspace) == "/" || strings.ContainsAny(c.Workspace, ",\n\r") {
+		return c, fmt.Errorf("CJUDGE_WORKSPACE must be an absolute dedicated directory without commas or line breaks")
 	}
 	for _, spec := range []struct {
 		name          string

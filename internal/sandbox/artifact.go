@@ -2,40 +2,12 @@ package sandbox
 
 import (
 	"archive/tar"
-	"context"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"time"
 )
 
-// exportArtifact accepts exactly one regular file, never paths from an archive.
-func (d *Docker) exportArtifact(ctx context.Context, name, workspace string) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, d.Binary, "cp", name+":/tmp/program", "-")
-	cmd.WaitDelay = time.Second
-	pipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	if err = cmd.Start(); err != nil {
-		return err
-	}
-	err = extractArtifact(pipe, filepath.Join(workspace, "program"))
-	if err != nil {
-		cancel()
-	}
-	pipe.Close()
-	waitErr := cmd.Wait()
-	if err != nil {
-		return err
-	}
-	return waitErr
-}
-
+// extractArtifact accepts exactly one regular file, never paths from an archive.
 func extractArtifact(r io.Reader, destination string) error {
 	const maxArtifact = 32 << 20
 	tr := tar.NewReader(io.LimitReader(r, maxArtifact+(64<<10)))

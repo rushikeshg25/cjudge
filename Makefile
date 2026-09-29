@@ -1,6 +1,8 @@
 .PHONY: build test race vet fmt integration
+VERSION ?= 1.0.0
 build:
-	go build ./cmd/...
+	mkdir -p bin
+	go build -trimpath -ldflags="-X main.version=$(VERSION)" -o bin/cjudge ./cmd/cjudge
 test:
 	go test ./...
 race:

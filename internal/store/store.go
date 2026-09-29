@@ -37,8 +37,25 @@ func Open(ctx context.Context, url string) (*Store, error) {
 	return &Store{p}, nil
 }
 
-func (s *Store) Close()                         { s.Pool.Close() }
-func (s *Store) Ping(ctx context.Context) error { return s.Pool.Ping(ctx) }
+func (s *Store) Close() { s.Pool.Close() }
+func (s *Store) Ping(ctx context.Context) error {
+	files, err := migrations.ReadDir("migrations")
+	if err != nil {
+		return err
+	}
+	names := make([]string, 0, len(files))
+	for _, f := range files {
+		names = append(names, f.Name())
+	}
+	var applied int
+	if err = s.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE name=ANY($1)`, names).Scan(&applied); err != nil {
+		return fmt.Errorf("database schema unavailable: %w", err)
+	}
+	if applied != len(names) {
+		return fmt.Errorf("database schema behind binary; run migrate")
+	}
+	return nil
+}
 
 // Migrate serializes schema changes and applies each file atomically.
 func (s *Store) Migrate(ctx context.Context) error {

@@ -53,10 +53,10 @@ type Problem struct {
 }
 
 func (p Problem) Validate() error {
-	if strings.TrimSpace(p.Title) == "" || len(p.Title) > 200 || !utf8.ValidString(p.Title) {
+	if strings.TrimSpace(p.Title) == "" || len(p.Title) > 200 || !utf8.ValidString(p.Title) || strings.ContainsRune(p.Title, 0) {
 		return errors.New("title must be 1..200 UTF-8 bytes")
 	}
-	if len(p.Statement) > 65536 || !utf8.ValidString(p.Statement) {
+	if len(p.Statement) > 65536 || !utf8.ValidString(p.Statement) || strings.ContainsRune(p.Statement, 0) {
 		return errors.New("statement must be at most 65536 UTF-8 bytes")
 	}
 	if p.Checker != "tokens" && p.Checker != "exact" {
@@ -110,6 +110,7 @@ func (s SubmissionRequest) Validate() error {
 }
 
 type Result struct {
+	Image      string  `json:"image,omitempty"`
 	Verdict    Verdict `json:"verdict"`
 	Passed     int     `json:"passed"`
 	Total      int     `json:"total"`

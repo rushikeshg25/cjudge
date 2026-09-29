@@ -25,6 +25,7 @@ func (j *Judge) Evaluate(ctx context.Context, sub domain.Submission, p domain.Pr
 	if !ok {
 		return result, fmt.Errorf("language unavailable")
 	}
+	result.Image = lang.Image
 	if err := p.Validate(); err != nil {
 		return result, fmt.Errorf("invalid stored problem: %w", err)
 	}
