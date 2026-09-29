@@ -1,0 +1,84 @@
+name: cjudge
+services:
+  db:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_USER: cjudge
+      POSTGRES_DB: cjudge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cjudge -d cjudge"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    restart: unless-stopped
+    networks: [control]
+  migrate:
+    build:
+      context: .
+      target: api
+    command: ["migrate"]
+    environment: &database_env
+      DATABASE_URL: postgres://cjudge:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/cjudge?sslmode=disable
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [control]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  api:
+    build:
+      context: .
+      target: api
+    environment:
+      <<: *database_env
+      CJUDGE_QUEUE_LIMIT: "1000"
+      CJUDGE_REQUESTS_PER_MINUTE: "120"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    ports: ["127.0.0.1:8080:8080"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 256m
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks: [control, ingress]
+  worker:
+    build:
+      context: .
+      target: worker
+    # The orchestrator owns Docker; submitted programs always run as 65532.
+    user: "0:0"
+    environment:
+      <<: *database_env
+      CJUDGE_WORKSPACE: ${CJUDGE_WORKSPACE:?set an absolute workspace path}
+      CJUDGE_RUNTIME: ${CJUDGE_RUNTIME:-runsc}
+      CJUDGE_WORKERS: ${CJUDGE_WORKERS:-2}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${CJUDGE_WORKSPACE:?set workspace}:${CJUDGE_WORKSPACE:?set workspace}
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 512m
+    stop_grace_period: 45s
+    restart: unless-stopped
+    networks: [control]
+volumes:
+  database:
+networks:
+  ingress:
+  control:
+    internal: true
