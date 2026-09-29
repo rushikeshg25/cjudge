@@ -60,7 +60,7 @@ func fixture(t *testing.T, s *Store) (domain.Principal, domain.SubmissionRequest
 	if err != nil {
 		t.Fatal(err)
 	}
-	problem, err := s.CreateProblem(ctx, domain.Problem{Title: "sum", Checker: "tokens", Limits: domain.Limits{1000, 128, 64}, Tests: []domain.TestCase{{"1 2", "3"}}})
+	problem, err := s.CreateProblem(ctx, domain.Problem{Title: "sum", Checker: "tokens", Limits: domain.Limits{TimeMS: 1000, MemoryMB: 128, OutputKB: 64}, Tests: []domain.TestCase{{Input: "1 2", Expected: "3"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

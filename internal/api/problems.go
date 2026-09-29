@@ -18,6 +18,7 @@ func (s *Server) createProblem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := domain.Problem{Title: req.Title, Statement: req.Statement, Checker: req.Checker, Limits: req.Limits, Tests: req.Tests}
+	p.AuthorID = principal(r).ID
 	if err := p.Validate(); err != nil {
 		writeError(w, 422, "validation_error", err.Error())
 		return
@@ -36,7 +37,7 @@ func (s *Server) getProblem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "not_found", "resource not found")
 		return
 	}
-	p, err := s.Repo.Problem(r.Context(), r.PathValue("id"))
+	p, err := s.Repo.PublicProblem(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.failure(w, r, err)
 		return

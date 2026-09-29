@@ -18,7 +18,7 @@ type Repository interface {
 	Ping(context.Context) error
 	Authenticate(context.Context, string) (domain.Principal, error)
 	CreateProblem(context.Context, domain.Problem) (domain.Problem, error)
-	Problem(context.Context, string) (domain.Problem, error)
+	PublicProblem(context.Context, string) (domain.Problem, error)
 	Problems(context.Context, string, int) ([]domain.Problem, error)
 	Enqueue(context.Context, string, string, domain.SubmissionRequest, int) (domain.Submission, bool, error)
 	Submission(context.Context, string, string) (domain.Submission, error)

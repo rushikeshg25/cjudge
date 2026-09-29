@@ -3,10 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/rushikeshg25/cjudge/internal/domain"
 )
 
@@ -95,6 +93,3 @@ func (s *Store) QueueStats(ctx context.Context) (map[string]int64, error) {
 	}
 	return stats, rows.Err()
 }
-
-var _ = errors.Is
-var _ = pgx.ErrNoRows

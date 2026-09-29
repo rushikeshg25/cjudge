@@ -16,7 +16,22 @@ func (s *Store) CreateProblem(ctx context.Context, p domain.Problem) (domain.Pro
 	p.ID = domain.NewID()
 	limits, _ := json.Marshal(p.Limits)
 	tests, _ := json.Marshal(p.Tests)
-	err := s.Pool.QueryRow(ctx, `INSERT INTO problems(id,title,statement,checker,limits,tests) VALUES($1,$2,$3,$4,$5,$6) RETURNING created_at`, p.ID, p.Title, p.Statement, p.Checker, limits, tests).Scan(&p.CreatedAt)
+	err := s.Pool.QueryRow(ctx, `INSERT INTO problems(id,title,statement,checker,limits,tests,author_id) VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,'')) RETURNING created_at`, p.ID, p.Title, p.Statement, p.Checker, limits, tests, p.AuthorID).Scan(&p.CreatedAt)
+	return p, err
+}
+
+// PublicProblem deliberately never SELECTs private tests; the API DB role cannot read them.
+func (s *Store) PublicProblem(ctx context.Context, id string) (domain.Problem, error) {
+	var p domain.Problem
+	var limits []byte
+	err := s.Pool.QueryRow(ctx, `SELECT id,title,statement,checker,limits,created_at FROM problems WHERE id=$1`, id).Scan(&p.ID, &p.Title, &p.Statement, &p.Checker, &limits, &p.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return p, domain.ErrNotFound
+	}
+	if err != nil {
+		return p, err
+	}
+	err = json.Unmarshal(limits, &p.Limits)
 	return p, err
 }
 

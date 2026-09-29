@@ -55,7 +55,7 @@ func TestVerdicts(t *testing.T) {
 
 func TestInfrastructureError(t *testing.T) {
 	j := Judge{Runner: &fakeRunner{err: errors.New("daemon down")}, Languages: Languages("cpp", "py", "go"), Workspace: t.TempDir()}
-	p := domain.Problem{Title: "p", Checker: "exact", Limits: domain.Limits{1000, 128, 64}, Tests: []domain.TestCase{{}}}
+	p := domain.Problem{Title: "p", Checker: "exact", Limits: domain.Limits{TimeMS: 1000, MemoryMB: 128, OutputKB: 64}, Tests: []domain.TestCase{{}}}
 	if _, err := j.Evaluate(context.Background(), domain.Submission{Language: "go"}, p); err == nil {
 		t.Fatal("infrastructure failure became contestant verdict")
 	}

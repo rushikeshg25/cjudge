@@ -42,6 +42,7 @@ type TestCase struct {
 }
 
 type Problem struct {
+	AuthorID  string     `json:"-"`
 	ID        string     `json:"id"`
 	Title     string     `json:"title"`
 	Statement string     `json:"statement"`

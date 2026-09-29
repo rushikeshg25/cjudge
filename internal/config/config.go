@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -28,6 +29,19 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{DatabaseURL: os.Getenv("DATABASE_URL"), Listen: env("CJUDGE_LISTEN", ":8080"), DockerBinary: env("CJUDGE_DOCKER", "docker"), Runtime: env("CJUDGE_RUNTIME", "runsc"), Workspace: env("CJUDGE_WORKSPACE", "/tmp/cjudge"), CPPImage: env("CJUDGE_CPP_IMAGE", "cjudge-cpp:1"), PythonImage: env("CJUDGE_PYTHON_IMAGE", "cjudge-python:1"), GoImage: env("CJUDGE_GO_IMAGE", "cjudge-go:1")}
+	if path := os.Getenv("DATABASE_URL_FILE"); path != "" {
+		if c.DatabaseURL != "" {
+			return c, fmt.Errorf("set only one of DATABASE_URL or DATABASE_URL_FILE")
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return c, fmt.Errorf("read database secret: %w", err)
+		}
+		if len(b) > 16384 {
+			return c, fmt.Errorf("database secret too large")
+		}
+		c.DatabaseURL = strings.TrimSpace(string(b))
+	}
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required")
 	}
