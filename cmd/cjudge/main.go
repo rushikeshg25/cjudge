@@ -15,6 +15,7 @@ import (
 
 	"github.com/rushikeshg25/cjudge/internal/api"
 	"github.com/rushikeshg25/cjudge/internal/config"
+	"github.com/rushikeshg25/cjudge/internal/domain"
 	"github.com/rushikeshg25/cjudge/internal/judge"
 	"github.com/rushikeshg25/cjudge/internal/sandbox"
 	"github.com/rushikeshg25/cjudge/internal/store"
@@ -99,6 +100,21 @@ func run(log *slog.Logger, args []string) error {
 		if err := docker.Check(ctx, []string{cfg.CPPImage, cfg.PythonImage, cfg.GoImage}); err != nil {
 			return err
 		}
+		if err := docker.Reap(ctx); err != nil {
+			return err
+		}
+		for _, ref := range []*string{&cfg.CPPImage, &cfg.PythonImage, &cfg.GoImage} {
+			resolved, err := docker.ResolveImage(ctx, *ref)
+			if err != nil {
+				return err
+			}
+			*ref = resolved
+		}
+		workerID := domain.NewID()
+		if err := db.Heartbeat(ctx, workerID, cfg.Workers); err != nil {
+			return err
+		}
+		go maintain(ctx, db, docker, log, workerID, cfg.Workers)
 		j := &judge.Judge{Runner: docker, Languages: judge.Languages(cfg.CPPImage, cfg.PythonImage, cfg.GoImage), Workspace: cfg.Workspace}
 		w := &worker.Worker{Repo: db, Judge: j, Log: log, Concurrency: cfg.Workers, MaxAttempts: cfg.MaxAttempts, Lease: cfg.Lease, JobTimeout: cfg.JobTimeout, Poll: cfg.Poll}
 		done := make(chan struct{})

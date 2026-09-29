@@ -25,6 +25,7 @@ type Repository interface {
 	Submissions(context.Context, string, string, int) ([]domain.Submission, error)
 	QueueStats(context.Context) (map[string]int64, error)
 	Allow(context.Context, string, int) (bool, error)
+	WorkerStats(context.Context) (int64, int64, int64, error)
 }
 
 type Server struct {

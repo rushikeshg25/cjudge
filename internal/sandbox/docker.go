@@ -119,8 +119,23 @@ func (d *Docker) Run(ctx context.Context, r Request) (out Outcome, err error) {
 }
 
 func (d *Docker) Check(ctx context.Context, images []string) error {
-	if _, err := d.control(ctx, "info"); err != nil {
+	data, err := d.control(ctx, "info", "--format", "{{json .}}")
+	if err != nil {
 		return fmt.Errorf("docker unavailable: %w", err)
+	}
+	var info struct {
+		OSType                 string
+		MemoryLimit, PidsLimit bool
+		Runtimes               map[string]json.RawMessage
+	}
+	if err = json.Unmarshal(data, &info); err != nil {
+		return err
+	}
+	if info.OSType != "linux" || !info.MemoryLimit || !info.PidsLimit {
+		return fmt.Errorf("Docker requires Linux memory and PID limit support")
+	}
+	if _, ok := info.Runtimes[d.Runtime]; !ok {
+		return fmt.Errorf("required Docker runtime %q unavailable", d.Runtime)
 	}
 	for _, image := range images {
 		if _, err := d.control(ctx, "image", "inspect", image); err != nil {
