@@ -29,6 +29,7 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 func (s *Server) middleware(next http.Handler) http.Handler {
 	inflight := make(chan struct{}, 16)
 	publishing := make(chan struct{}, 1)
+	readiness := make(chan struct{}, 1)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		w.Header().Set("X-Request-ID", domain.NewID())
@@ -45,10 +46,14 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			}
 			s.Log.Info("http request", "method", r.Method, "route", r.Pattern, "status", rr.status, "duration_ms", time.Since(started).Milliseconds(), "request_id", w.Header().Get("X-Request-ID"))
 		}()
-		if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
+		admission := inflight
+		if r.URL.Path == "/readyz" {
+			admission = readiness
+		}
+		if r.URL.Path != "/healthz" {
 			select {
-			case inflight <- struct{}{}:
-				defer func() { <-inflight }()
+			case admission <- struct{}{}:
+				defer func() { <-admission }()
 			default:
 				w.Header().Set("Retry-After", "1")
 				writeError(rr, 503, "overloaded", "request concurrency at capacity")
