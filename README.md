@@ -35,9 +35,14 @@ Linux workers and `runsc`; see [operations](docs/operations.md).
 ```sh
 cp .env.example .env
 # Set a random POSTGRES_PASSWORD in .env (URL-encode reserved URL characters).
-sudo install -d -o root -g wheel -m 700 /tmp/cjudge-work # macOS; use -g root on Linux
+# Use a new, dedicated directory matching CJUDGE_WORKSPACE in .env.
+mkdir -m 700 /tmp/cjudge-work
 sh scripts/build-images.sh
-docker compose up --build -d
+docker compose build
+# One-time provisioning for the Compose worker's UID (also handles Docker Desktop).
+docker compose run --rm --no-deps --user 0:0 --cap-add CHOWN --entrypoint sh worker \
+  -c 'test -d "$CJUDGE_WORKSPACE" && test ! -L "$CJUDGE_WORKSPACE" && chown 0:0 "$CJUDGE_WORKSPACE" && chmod 700 "$CJUDGE_WORKSPACE"'
+docker compose up -d
 docker compose run --rm migrate create-principal --name local-admin --admin
 ```
 
@@ -75,7 +80,7 @@ bin/cjudge migrate
 bin/cjudge create-principal --name admin --admin
 bin/cjudge api
 # A second terminal, using the same database:
-CJUDGE_RUNTIME=runc CJUDGE_WORKSPACE=/tmp/cjudge-work bin/cjudge worker
+CJUDGE_RUNTIME=runc CJUDGE_WORKSPACE=/tmp/cjudge-native-work bin/cjudge worker
 ```
 
 For production, use `DATABASE_URL_FILE` to load a mounted secret instead of placing
