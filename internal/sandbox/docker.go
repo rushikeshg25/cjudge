@@ -107,6 +107,14 @@ func (d *Docker) Run(ctx context.Context, r Request) (out Outcome, err error) {
 	if runErr != nil && state.ExitCode == 0 && !out.TimedOut && !out.OutputExceeded {
 		return out, fmt.Errorf("attach sandbox: %w", runErr)
 	}
+	if r.ArtifactPath != "" && out.ExitCode == 0 && !out.OOM && !out.TimedOut && !out.OutputExceeded {
+		if r.ArtifactPath != "/tmp/program" {
+			return out, fmt.Errorf("invalid artifact path")
+		}
+		if err = d.exportArtifact(ctx, name, r.Workspace); err != nil {
+			return out, fmt.Errorf("export artifact: %w", err)
+		}
+	}
 	return out, nil
 }
 

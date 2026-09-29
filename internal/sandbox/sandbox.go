@@ -10,14 +10,14 @@ import (
 )
 
 type Request struct {
-	Image       string
-	Command     []string
-	Workspace   string
-	Input       string
-	Timeout     time.Duration
-	MemoryMB    int
-	OutputBytes int
-	Writable    bool
+	Image        string
+	Command      []string
+	Workspace    string
+	Input        string
+	Timeout      time.Duration
+	MemoryMB     int
+	OutputBytes  int
+	ArtifactPath string
 }
 
 type Outcome struct {
@@ -46,10 +46,8 @@ func createArgs(name, runtime string, r Request) ([]string, error) {
 	}
 	mem := strconv.Itoa(r.MemoryMB) + "m"
 	mount := "type=bind,src=" + r.Workspace + ",dst=/work"
-	if !r.Writable {
-		mount += ",readonly"
-	}
-	args := []string{"create", "--pull=never", "--name", name, "--label", "cjudge.managed=true", "--label", "cjudge.expires=" + strconv.FormatInt(time.Now().Add(r.Timeout+time.Minute).Unix(), 10), "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--pids-limit=64", "--memory=" + mem, "--memory-swap=" + mem, "--cpus=1", "--ulimit", "nofile=64:64", "--ulimit", "fsize=67108864:67108864", "--user=65532:65532", "--log-driver=none", "--init", "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m", "--mount", mount, "--workdir=/work", "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=GOCACHE=/tmp/go-cache", "--env=GOPATH=/tmp/go", "--env=GOMAXPROCS=1", "--interactive"}
+	mount += ",readonly"
+	args := []string{"create", "--pull=never", "--name", name, "--label", "cjudge.managed=true", "--label", "cjudge.expires=" + strconv.FormatInt(time.Now().Add(r.Timeout+time.Minute).Unix(), 10), "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--pids-limit=64", "--memory=" + mem, "--memory-swap=" + mem, "--cpus=1", "--ulimit", "nofile=64:64", "--ulimit", "fsize=67108864:67108864", "--user=65532:65532", "--log-driver=none", "--init", "--tmpfs", "/tmp:rw,nosuid,nodev,size=" + mem, "--mount", mount, "--workdir=/work", "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=GOCACHE=/tmp/go-cache", "--env=GOPATH=/tmp/go", "--env=GOMAXPROCS=1", "--interactive"}
 	if runtime != "" {
 		args = append(args, "--runtime", runtime)
 	}

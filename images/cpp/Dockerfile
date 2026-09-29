@@ -1,0 +1,3 @@
+FROM gcc:14.2.0-bookworm
+USER 65532:65532
+WORKDIR /work
